@@ -1,5 +1,11 @@
 # Changelog 
 
+## Version 0.0.3
+
+### Features
+
+* [Add documentation and delete inline comments](https://github.com/KevenAbraham/ai-assistant/pull/9)
+
 ## Version 0.0.2
 
 ### Features
