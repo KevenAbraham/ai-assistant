@@ -3,6 +3,7 @@ package httpclient
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +28,35 @@ func NewWhisperClient(cfg *config.Config) *WhisperLocalClient {
 	}
 }
 
+// encodeWAV wraps raw 16-bit little-endian PCM (16 kHz, mono) in a WAV container.
+func encodeWAV(pcm []byte) []byte {
+	const (
+		sampleRate    = 16000
+		numChannels   = 1
+		bitsPerSample = 16
+	)
+	byteRate := uint32(sampleRate * numChannels * bitsPerSample / 8)
+	blockAlign := uint16(numChannels * bitsPerSample / 8)
+	dataSize := uint32(len(pcm))
+
+	var buf bytes.Buffer
+	buf.WriteString("RIFF")
+	binary.Write(&buf, binary.LittleEndian, 36+dataSize) //nolint:errcheck
+	buf.WriteString("WAVE")
+	buf.WriteString("fmt ")
+	binary.Write(&buf, binary.LittleEndian, uint32(16))         //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, uint16(1))          //nolint:errcheck // PCM
+	binary.Write(&buf, binary.LittleEndian, uint16(numChannels)) //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate)) //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, byteRate)           //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, blockAlign)         //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, uint16(bitsPerSample)) //nolint:errcheck
+	buf.WriteString("data")
+	binary.Write(&buf, binary.LittleEndian, dataSize) //nolint:errcheck
+	buf.Write(pcm)
+	return buf.Bytes()
+}
+
 func (c *WhisperLocalClient) Transcribe(ctx context.Context, audio []byte) (string, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -35,8 +65,11 @@ func (c *WhisperLocalClient) Transcribe(ctx context.Context, audio []byte) (stri
 	if err != nil {
 		return "", fmt.Errorf("whisper: create form file: %w", err)
 	}
-	if _, err := part.Write(audio); err != nil {
+	if _, err := part.Write(encodeWAV(audio)); err != nil {
 		return "", fmt.Errorf("whisper: write audio: %w", err)
+	}
+	if err := w.WriteField("language", "pt"); err != nil {
+		return "", fmt.Errorf("whisper: write language field: %w", err)
 	}
 	w.Close()
 
