@@ -37,7 +37,7 @@ Runs a continuous loop: captures microphone audio → transcribes locally via wh
 | PostgreSQL 14+ | both | |
 | Anthropic API key | both | Claude model access |
 | whisper.cpp server | daemon only | local transcription |
-| PortAudio | daemon only | `brew install portaudio` / `apt install portaudio19-dev` |
+| PortAudio | daemon + `go build ./...` | `brew install portaudio` / `apt install portaudio19-dev` |
 | `say` / `espeak` | daemon only | built-in on macOS; `apt install espeak` on Linux |
 
 ---
