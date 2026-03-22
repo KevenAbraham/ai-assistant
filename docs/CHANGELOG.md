@@ -1,4 +1,10 @@
-# Changelog 
+# Changelog
+
+## Version 0.0.4
+
+### Features
+
+* [Fix whisper transcription by encoding PCM ad WAV before sending](https://github.com/KevenAbraham/ai-assistant/pull/13)
 
 ## Version 0.0.3
 
