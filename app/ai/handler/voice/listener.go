@@ -13,25 +13,16 @@ const (
 	framesPerBuffer = 1024
 )
 
-// AudioCapture is the interface for capturing raw audio samples.
-// The concrete implementation lives in Listener.
 type AudioCapture interface {
 	Listen(ctx context.Context) ([]int16, error)
 }
 
-// ListenerConfig holds tunable parameters for the Listener.
 type ListenerConfig struct {
-	// MaxRecordSeconds is the hard upper limit on recording duration.
-	MaxRecordSeconds int
-	// SilenceThreshold is the RMS amplitude below which audio is considered silence (0–32767 scale).
-	SilenceThreshold float64
-	// SilenceDurationMs is how long continuous silence must last (in ms) before recording stops.
+	MaxRecordSeconds  int
+	SilenceThreshold  float64
 	SilenceDurationMs int
 }
 
-// Listener captures audio from the default input device using PortAudio.
-// It stops recording automatically once the user stops speaking (VAD), or when
-// MaxRecordSeconds is reached — whichever comes first.
 type Listener struct {
 	cfg ListenerConfig
 }
