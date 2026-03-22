@@ -1,5 +1,6 @@
 .PHONY: build build-api build-daemon run-api run-daemon migrate-up migrate-down tidy vet test docker-up docker-down
 
+include .env
 export GOTOOLCHAIN := path
 
 _GO_1_25_BIN := /usr/local/go1.25.1/bin
@@ -23,10 +24,10 @@ run-daemon:
 	bash -c 'set -a && source .env 2>/dev/null; set +a && CGO_ENABLED=1 go run ./cmd/daemon'
 
 migrate-up:
-	migrate -path migrations -database "$$DATABASE_URL" up
+	migrate -path migrations -database "$(DATABASE_URL)" up
 
 migrate-down:
-	migrate -path migrations -database "$$DATABASE_URL" down
+	migrate -path migrations -database "$(DATABASE_URL)" down
 
 tidy:
 	go mod tidy
