@@ -8,25 +8,20 @@ import (
 	"github.com/KevenAbraham/ai-assistant/app/ai/repository"
 )
 
-// AIClient is the interface for calling an LLM backend (e.g. Claude).
-// Implemented in internal/httpclient/.
 type AIClient interface {
 	Complete(ctx context.Context, messages []entity.Message) (string, error)
 }
 
-// ProcessCommandInput carries the raw text and session context.
 type ProcessCommandInput struct {
 	Text      string
 	SessionID string
 }
 
-// ProcessCommandOutput holds the assistant's response and detected intent.
 type ProcessCommandOutput struct {
 	Response string
 	Intent   entity.Intent
 }
 
-// ProcessCommandUseCase orchestrates the main request-response loop.
 type ProcessCommandUseCase struct {
 	conversationRepo repository.ConversationRepository
 	memoryRepo       repository.MemoryRepository
@@ -76,7 +71,6 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 	conv.Messages = append(conv.Messages, assistantMsg)
 
 	if saveErr := uc.conversationRepo.Save(ctx, conv); saveErr != nil {
-		// Non-fatal: log but do not block the response.
 		_ = saveErr
 	}
 

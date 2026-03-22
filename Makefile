@@ -1,5 +1,13 @@
 .PHONY: build build-api build-daemon run-api run-daemon migrate-up migrate-down tidy vet test docker-up docker-down
 
+export GOTOOLCHAIN := path
+
+_GO_1_25_BIN := /usr/local/go1.25.1/bin
+ifneq ($(wildcard $(_GO_1_25_BIN)/go),)
+export PATH := $(_GO_1_25_BIN):$(PATH)
+export GOROOT := /usr/local/go1.25.1
+endif
+
 build: build-api build-daemon
 
 build-api:
