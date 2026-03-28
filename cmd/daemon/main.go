@@ -42,8 +42,9 @@ func main() {
 		log.Fatalf("system prompt: %v", err)
 	}
 	contextBuilder := service.NewContextBuilder(systemPrompt)
+	actionExecutor := service.NewActionExecutor()
 
-	var processCmd usecase.CommandProcessor = usecase.NewProcessCommandUseCase(convRepo, memRepo, claudeClient, contextBuilder)
+	var processCmd usecase.CommandProcessor = usecase.NewProcessCommandUseCase(convRepo, memRepo, claudeClient, contextBuilder, actionExecutor)
 
 	var listener voice.AudioCapture = voice.NewListener(voice.ListenerConfig{
 		MaxRecordSeconds:  cfg.RecordSeconds,

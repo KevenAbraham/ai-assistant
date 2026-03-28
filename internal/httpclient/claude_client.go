@@ -2,12 +2,14 @@ package httpclient
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
+	"github.com/KevenAbraham/ai-assistant/app/ai/usecase"
 	"github.com/KevenAbraham/ai-assistant/internal/config"
 )
 
@@ -25,7 +27,8 @@ func NewClaudeClient(cfg *config.Config) *ClaudeClient {
 	}
 }
 
-func (c *ClaudeClient) Complete(ctx context.Context, messages []entity.Message) (string, error) {
+// parseMessages separates system blocks from the conversation messages.
+func (c *ClaudeClient) parseMessages(messages []entity.Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var systemBlocks []anthropic.TextBlockParam
 	var apiMessages []anthropic.MessageParam
 
@@ -39,6 +42,11 @@ func (c *ClaudeClient) Complete(ctx context.Context, messages []entity.Message) 
 			apiMessages = append(apiMessages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(m.Content)))
 		}
 	}
+	return systemBlocks, apiMessages
+}
+
+func (c *ClaudeClient) Complete(ctx context.Context, messages []entity.Message) (string, error) {
+	systemBlocks, apiMessages := c.parseMessages(messages)
 
 	params := anthropic.MessageNewParams{
 		Model:     c.model,
@@ -57,4 +65,86 @@ func (c *ClaudeClient) Complete(ctx context.Context, messages []entity.Message) 
 	}
 
 	return resp.Content[0].AsText().Text, nil
+}
+
+// CompleteWithTools runs a multi-turn loop that lets Claude invoke local tools
+// until it produces a final text response.
+func (c *ClaudeClient) CompleteWithTools(
+	ctx context.Context,
+	messages []entity.Message,
+	tools []entity.Tool,
+	handler usecase.ToolHandler,
+) (string, error) {
+	systemBlocks, apiMessages := c.parseMessages(messages)
+	apiTools := buildToolParams(tools)
+
+	for {
+		params := anthropic.MessageNewParams{
+			Model:     c.model,
+			MaxTokens: 1024,
+			Messages:  apiMessages,
+			System:    systemBlocks,
+			Tools:     apiTools,
+		}
+
+		message, err := c.client.Messages.New(ctx, params)
+		if err != nil {
+			return "", fmt.Errorf("claude API: %w", err)
+		}
+
+		// Collect tool calls from this turn.
+		var toolResults []anthropic.ContentBlockParamUnion
+		for _, block := range message.Content {
+			variant, ok := block.AsAny().(anthropic.ToolUseBlock)
+			if !ok {
+				continue
+			}
+
+			var input map[string]interface{}
+			if err := json.Unmarshal([]byte(variant.JSON.Input.Raw()), &input); err != nil {
+				input = map[string]interface{}{}
+			}
+
+			result, toolErr := handler(ctx, variant.Name, input)
+			isError := toolErr != nil
+			if isError {
+				result = toolErr.Error()
+			}
+			toolResults = append(toolResults, anthropic.NewToolResultBlock(variant.ID, result, isError))
+		}
+
+		// No tool calls → Claude produced the final text response.
+		if len(toolResults) == 0 {
+			for _, block := range message.Content {
+				if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
+					return tb.Text, nil
+				}
+			}
+			return "", entity.ErrAIClientFailure
+		}
+
+		// Append assistant turn (with tool_use blocks) and tool results.
+		apiMessages = append(apiMessages, message.ToParam())
+		apiMessages = append(apiMessages, anthropic.NewUserMessage(toolResults...))
+	}
+}
+
+// buildToolParams converts entity.Tool slice to the SDK's ToolUnionParam slice.
+func buildToolParams(tools []entity.Tool) []anthropic.ToolUnionParam {
+	params := make([]anthropic.ToolUnionParam, len(tools))
+	for i, t := range tools {
+		properties, _ := t.Parameters["properties"]
+		required, _ := t.Parameters["required"].([]string)
+
+		tool := anthropic.ToolParam{
+			Name:        t.Name,
+			Description: anthropic.String(t.Description),
+			InputSchema: anthropic.ToolInputSchemaParam{
+				Properties: properties,
+				Required:   required,
+			},
+		}
+		params[i] = anthropic.ToolUnionParam{OfTool: &tool}
+	}
+	return params
 }

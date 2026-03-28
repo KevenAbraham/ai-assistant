@@ -15,6 +15,9 @@ var AIModule = fx.Module("ai",
 	fx.Provide(config.LoadSystemPrompt),
 	fx.Provide(service.NewContextBuilder),
 
+	// Action executor — runs local device actions triggered by tool calls.
+	fx.Provide(service.NewActionExecutor),
+
 	// External API clients — ClaudeClient satisfies usecase.AIClient.
 	fx.Provide(
 		fx.Annotate(
