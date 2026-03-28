@@ -92,7 +92,20 @@ func (c *ClaudeClient) CompleteWithTools(
 			return "", fmt.Errorf("claude API: %w", err)
 		}
 
-		// Collect tool calls from this turn.
+		// Append the assistant turn unconditionally so it's in context for the next call.
+		apiMessages = append(apiMessages, message.ToParam())
+
+		// No tool calls → Claude produced the final text response.
+		if message.StopReason != anthropic.StopReasonToolUse {
+			for _, block := range message.Content {
+				if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
+					return tb.Text, nil
+				}
+			}
+			return "", entity.ErrAIClientFailure
+		}
+
+		// Execute each tool call and collect results.
 		var toolResults []anthropic.ContentBlockParamUnion
 		for _, block := range message.Content {
 			variant, ok := block.AsAny().(anthropic.ToolUseBlock)
@@ -113,18 +126,6 @@ func (c *ClaudeClient) CompleteWithTools(
 			toolResults = append(toolResults, anthropic.NewToolResultBlock(variant.ID, result, isError))
 		}
 
-		// No tool calls → Claude produced the final text response.
-		if len(toolResults) == 0 {
-			for _, block := range message.Content {
-				if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
-					return tb.Text, nil
-				}
-			}
-			return "", entity.ErrAIClientFailure
-		}
-
-		// Append assistant turn (with tool_use blocks) and tool results.
-		apiMessages = append(apiMessages, message.ToParam())
 		apiMessages = append(apiMessages, anthropic.NewUserMessage(toolResults...))
 	}
 }
