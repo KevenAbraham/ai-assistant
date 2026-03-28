@@ -6,6 +6,7 @@ import (
 
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
 	"github.com/KevenAbraham/ai-assistant/app/ai/repository"
+	"github.com/KevenAbraham/ai-assistant/app/ai/service"
 )
 
 type AIClient interface {
@@ -26,17 +27,20 @@ type ProcessCommandUseCase struct {
 	conversationRepo repository.ConversationRepository
 	memoryRepo       repository.MemoryRepository
 	aiClient         AIClient
+	contextBuilder   *service.ContextBuilder
 }
 
 func NewProcessCommandUseCase(
 	convRepo repository.ConversationRepository,
 	memRepo repository.MemoryRepository,
 	aiClient AIClient,
+	cb *service.ContextBuilder,
 ) *ProcessCommandUseCase {
 	return &ProcessCommandUseCase{
 		conversationRepo: convRepo,
 		memoryRepo:       memRepo,
 		aiClient:         aiClient,
+		contextBuilder:   cb,
 	}
 }
 
@@ -59,7 +63,9 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 	}
 	conv.Messages = append(conv.Messages, userMsg)
 
-	responseText, err := uc.aiClient.Complete(ctx, conv.Messages)
+	memories, _ := uc.memoryRepo.FindAll(ctx)
+	messages := uc.contextBuilder.Build(conv.Messages, memories)
+	responseText, err := uc.aiClient.Complete(ctx, messages)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", entity.ErrAIClientFailure, err)
 	}
