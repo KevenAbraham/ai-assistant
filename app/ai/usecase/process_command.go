@@ -14,7 +14,9 @@ type ToolHandler func(ctx context.Context, name string, input map[string]interfa
 
 type AIClient interface {
 	Complete(ctx context.Context, messages []entity.Message) (string, error)
-	CompleteWithTools(ctx context.Context, messages []entity.Message, tools []entity.Tool, handler ToolHandler) (string, error)
+	// CompleteWithTools runs a multi-turn tool use loop and returns the final
+	// text response plus the intermediate tool messages for persistence.
+	CompleteWithTools(ctx context.Context, messages []entity.Message, tools []entity.Tool, handler ToolHandler) (string, []entity.Message, error)
 }
 
 type ProcessCommandInput struct {
@@ -109,11 +111,13 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 		return uc.actionExecutor.HandleTool(ctx, name, toolInput)
 	}
 
-	responseText, err := uc.aiClient.CompleteWithTools(ctx, messages, availableTools, handler)
+	responseText, toolMsgs, err := uc.aiClient.CompleteWithTools(ctx, messages, availableTools, handler)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", entity.ErrAIClientFailure, err)
 	}
 
+	// Persist tool_use/tool_result turns so future requests have full context.
+	conv.Messages = append(conv.Messages, toolMsgs...)
 	assistantMsg := entity.Message{
 		Role:    entity.RoleAssistant,
 		Content: responseText,

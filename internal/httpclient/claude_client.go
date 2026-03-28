@@ -27,7 +27,22 @@ func NewClaudeClient(cfg *config.Config) *ClaudeClient {
 	}
 }
 
-// parseMessages separates system blocks from the conversation messages.
+// toolUseContent is the JSON structure stored in a RoleToolUse message.
+type toolUseContent struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Input any    `json:"input"`
+}
+
+// toolResultContent is the JSON structure stored in a RoleToolResult message.
+type toolResultContent struct {
+	ToolUseID string `json:"tool_use_id"`
+	Result    string `json:"result"`
+	IsError   bool   `json:"is_error"`
+}
+
+// parseMessages separates system blocks from the conversation messages and
+// reconstructs tool_use / tool_result turns into their proper SDK types.
 func (c *ClaudeClient) parseMessages(messages []entity.Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var systemBlocks []anthropic.TextBlockParam
 	var apiMessages []anthropic.MessageParam
@@ -40,6 +55,18 @@ func (c *ClaudeClient) parseMessages(messages []entity.Message) ([]anthropic.Tex
 			apiMessages = append(apiMessages, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
 		case entity.RoleAssistant:
 			apiMessages = append(apiMessages, anthropic.NewAssistantMessage(anthropic.NewTextBlock(m.Content)))
+		case entity.RoleToolUse:
+			var tu toolUseContent
+			if err := json.Unmarshal([]byte(m.Content), &tu); err == nil {
+				apiMessages = append(apiMessages,
+					anthropic.NewAssistantMessage(anthropic.NewToolUseBlock(tu.ID, tu.Input, tu.Name)))
+			}
+		case entity.RoleToolResult:
+			var tr toolResultContent
+			if err := json.Unmarshal([]byte(m.Content), &tr); err == nil {
+				apiMessages = append(apiMessages,
+					anthropic.NewUserMessage(anthropic.NewToolResultBlock(tr.ToolUseID, tr.Result, tr.IsError)))
+			}
 		}
 	}
 	return systemBlocks, apiMessages
@@ -68,15 +95,18 @@ func (c *ClaudeClient) Complete(ctx context.Context, messages []entity.Message) 
 }
 
 // CompleteWithTools runs a multi-turn loop that lets Claude invoke local tools
-// until it produces a final text response.
+// until it produces a final text response. It returns both the response text and
+// the intermediate tool messages so callers can persist them for future context.
 func (c *ClaudeClient) CompleteWithTools(
 	ctx context.Context,
 	messages []entity.Message,
 	tools []entity.Tool,
 	handler usecase.ToolHandler,
-) (string, error) {
+) (string, []entity.Message, error) {
 	systemBlocks, apiMessages := c.parseMessages(messages)
 	apiTools := buildToolParams(tools)
+
+	var toolMessages []entity.Message
 
 	for {
 		params := anthropic.MessageNewParams{
@@ -89,7 +119,7 @@ func (c *ClaudeClient) CompleteWithTools(
 
 		message, err := c.client.Messages.New(ctx, params)
 		if err != nil {
-			return "", fmt.Errorf("claude API: %w", err)
+			return "", nil, fmt.Errorf("claude API: %w", err)
 		}
 
 		// Append the assistant turn unconditionally so it's in context for the next call.
@@ -99,10 +129,10 @@ func (c *ClaudeClient) CompleteWithTools(
 		if message.StopReason != anthropic.StopReasonToolUse {
 			for _, block := range message.Content {
 				if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
-					return tb.Text, nil
+					return tb.Text, toolMessages, nil
 				}
 			}
-			return "", entity.ErrAIClientFailure
+			return "", toolMessages, entity.ErrAIClientFailure
 		}
 
 		// Execute each tool call and collect results.
@@ -123,6 +153,15 @@ func (c *ClaudeClient) CompleteWithTools(
 			if isError {
 				result = toolErr.Error()
 			}
+
+			// Store this tool exchange for persistence.
+			tuJSON, _ := json.Marshal(toolUseContent{ID: variant.ID, Name: variant.Name, Input: input})
+			trJSON, _ := json.Marshal(toolResultContent{ToolUseID: variant.ID, Result: result, IsError: isError})
+			toolMessages = append(toolMessages,
+				entity.Message{Role: entity.RoleToolUse, Content: string(tuJSON)},
+				entity.Message{Role: entity.RoleToolResult, Content: string(trJSON)},
+			)
+
 			toolResults = append(toolResults, anthropic.NewToolResultBlock(variant.ID, result, isError))
 		}
 
