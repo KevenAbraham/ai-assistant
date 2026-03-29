@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.0.5
+
+### Features
+
+* [Add multi-turn tool use support and cross-platform app launching](https://github.com/KevenAbraham/ai-assistant/pull/17)
+
 ## Version 0.0.4
 
 ### Features
