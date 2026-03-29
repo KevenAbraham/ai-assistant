@@ -13,7 +13,6 @@ import (
 	"github.com/KevenAbraham/ai-assistant/internal/config"
 )
 
-// ClaudeClient wraps the official Anthropic SDK and implements usecase.AIClient.
 type ClaudeClient struct {
 	client anthropic.Client
 	model  anthropic.Model
@@ -27,22 +26,18 @@ func NewClaudeClient(cfg *config.Config) *ClaudeClient {
 	}
 }
 
-// toolUseContent is the JSON structure stored in a RoleToolUse message.
 type toolUseContent struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Input any    `json:"input"`
 }
 
-// toolResultContent is the JSON structure stored in a RoleToolResult message.
 type toolResultContent struct {
 	ToolUseID string `json:"tool_use_id"`
 	Result    string `json:"result"`
 	IsError   bool   `json:"is_error"`
 }
 
-// parseMessages separates system blocks from the conversation messages and
-// reconstructs tool_use / tool_result turns into their proper SDK types.
 func (c *ClaudeClient) parseMessages(messages []entity.Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam) {
 	var systemBlocks []anthropic.TextBlockParam
 	var apiMessages []anthropic.MessageParam
@@ -94,9 +89,6 @@ func (c *ClaudeClient) Complete(ctx context.Context, messages []entity.Message) 
 	return resp.Content[0].AsText().Text, nil
 }
 
-// CompleteWithTools runs a multi-turn loop that lets Claude invoke local tools
-// until it produces a final text response. It returns both the response text and
-// the intermediate tool messages so callers can persist them for future context.
 func (c *ClaudeClient) CompleteWithTools(
 	ctx context.Context,
 	messages []entity.Message,
@@ -122,10 +114,8 @@ func (c *ClaudeClient) CompleteWithTools(
 			return "", nil, fmt.Errorf("claude API: %w", err)
 		}
 
-		// Append the assistant turn unconditionally so it's in context for the next call.
 		apiMessages = append(apiMessages, message.ToParam())
 
-		// No tool calls → Claude produced the final text response.
 		if message.StopReason != anthropic.StopReasonToolUse {
 			for _, block := range message.Content {
 				if tb, ok := block.AsAny().(anthropic.TextBlock); ok {
@@ -135,7 +125,6 @@ func (c *ClaudeClient) CompleteWithTools(
 			return "", toolMessages, entity.ErrAIClientFailure
 		}
 
-		// Execute each tool call and collect results.
 		var toolResults []anthropic.ContentBlockParamUnion
 		for _, block := range message.Content {
 			variant, ok := block.AsAny().(anthropic.ToolUseBlock)
@@ -154,7 +143,6 @@ func (c *ClaudeClient) CompleteWithTools(
 				result = toolErr.Error()
 			}
 
-			// Store this tool exchange for persistence.
 			tuJSON, _ := json.Marshal(toolUseContent{ID: variant.ID, Name: variant.Name, Input: input})
 			trJSON, _ := json.Marshal(toolResultContent{ToolUseID: variant.ID, Result: result, IsError: isError})
 			toolMessages = append(toolMessages,
@@ -169,7 +157,6 @@ func (c *ClaudeClient) CompleteWithTools(
 	}
 }
 
-// buildToolParams converts entity.Tool slice to the SDK's ToolUnionParam slice.
 func buildToolParams(tools []entity.Tool) []anthropic.ToolUnionParam {
 	params := make([]anthropic.ToolUnionParam, len(tools))
 	for i, t := range tools {

@@ -9,8 +9,6 @@ import (
 	"github.com/KevenAbraham/ai-assistant/internal/config"
 )
 
-// DB is a thin wrapper around a pgx connection.
-// For production use, replace with pgxpool.Pool once puddle/v2 is available.
 type DB struct {
 	conn *pgx.Conn
 }

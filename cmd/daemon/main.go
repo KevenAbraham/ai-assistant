@@ -56,14 +56,7 @@ func main() {
 
 	log.Println("voice daemon started — listening...")
 
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("shutting down voice daemon")
-			return
-		default:
-		}
-
+	for ctx.Err() == nil {
 		samples, err := listener.Listen(ctx)
 		if err != nil {
 			log.Printf("listen error: %v", err)
@@ -89,7 +82,7 @@ func main() {
 			continue
 		}
 		log.Printf("assistant: %s", out.Response)
-		
+
 		if err := speaker.Speak(ctx, out.Response); err != nil {
 			log.Printf("speak error: %v", err)
 		}

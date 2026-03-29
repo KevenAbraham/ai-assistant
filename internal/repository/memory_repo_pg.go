@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
 	apprepository "github.com/KevenAbraham/ai-assistant/app/ai/repository"
 	"github.com/KevenAbraham/ai-assistant/internal/database"
 )
 
-// memoryRepoPg implements apprepository.MemoryRepository using PostgreSQL.
 type memoryRepoPg struct {
 	db *database.DB
 }
 
-// NewMemoryRepository creates a new PostgreSQL-backed MemoryRepository.
 func NewMemoryRepository(db *database.DB) apprepository.MemoryRepository {
 	return &memoryRepoPg{db: db}
 }
@@ -46,43 +46,35 @@ func (r *memoryRepoPg) FindAll(ctx context.Context) ([]*entity.Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var mems []*entity.Memory
-	for rows.Next() {
-		var mem entity.Memory
-		if err := rows.Scan(&mem.Key, &mem.Value, &mem.CreatedAt, &mem.UpdatedAt); err != nil {
-			return nil, err
-		}
-		mems = append(mems, &mem)
-	}
-	return mems, rows.Err()
+	return scanMemories(rows)
 }
 
 func (r *memoryRepoPg) Search(ctx context.Context, query string) ([]*entity.Memory, error) {
-	pattern := "%" + query + "%"
 	rows, err := r.db.Conn().Query(ctx, `
 		SELECT key, value, created_at, updated_at FROM memories
 		WHERE key ILIKE $1 OR value ILIKE $1
 		ORDER BY key
-	`, pattern)
+	`, "%"+query+"%")
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var mems []*entity.Memory
-	for rows.Next() {
-		var mem entity.Memory
-		if err := rows.Scan(&mem.Key, &mem.Value, &mem.CreatedAt, &mem.UpdatedAt); err != nil {
-			return nil, err
-		}
-		mems = append(mems, &mem)
-	}
-	return mems, rows.Err()
+	return scanMemories(rows)
 }
 
 func (r *memoryRepoPg) Delete(ctx context.Context, key string) error {
 	_, err := r.db.Conn().Exec(ctx, `DELETE FROM memories WHERE key = $1`, key)
 	return err
+}
+
+func scanMemories(rows pgx.Rows) ([]*entity.Memory, error) {
+	defer rows.Close()
+	var mems []*entity.Memory
+	for rows.Next() {
+		var mem entity.Memory
+		if err := rows.Scan(&mem.Key, &mem.Value, &mem.CreatedAt, &mem.UpdatedAt); err != nil {
+			return nil, err
+		}
+		mems = append(mems, &mem)
+	}
+	return mems, rows.Err()
 }

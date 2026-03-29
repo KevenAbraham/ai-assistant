@@ -10,13 +10,10 @@ import (
 	"github.com/KevenAbraham/ai-assistant/app/ai/service"
 )
 
-// ToolHandler executes a named tool call and returns a result string.
 type ToolHandler func(ctx context.Context, name string, input map[string]interface{}) (string, error)
 
 type AIClient interface {
 	Complete(ctx context.Context, messages []entity.Message) (string, error)
-	// CompleteWithTools runs a multi-turn tool use loop and returns the final
-	// text response plus the intermediate tool messages for persistence.
 	CompleteWithTools(ctx context.Context, messages []entity.Message, tools []entity.Tool, handler ToolHandler) (string, []entity.Message, error)
 }
 
@@ -30,7 +27,6 @@ type ProcessCommandOutput struct {
 	Intent   entity.Intent
 }
 
-// availableTools lists the tools exposed to the LLM.
 var availableTools = []entity.Tool{
 	{
 		Name:        "open_app",
@@ -99,11 +95,10 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 		}
 	}
 
-	userMsg := entity.Message{
+	conv.Messages = append(conv.Messages, entity.Message{
 		Role:    entity.RoleUser,
 		Content: input.Text,
-	}
-	conv.Messages = append(conv.Messages, userMsg)
+	})
 
 	memories, _ := uc.memoryRepo.FindAll(ctx)
 	messages := uc.contextBuilder.Build(conv.Messages, memories)
@@ -117,13 +112,11 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 		return nil, fmt.Errorf("%w: %w", entity.ErrAIClientFailure, err)
 	}
 
-	// Persist tool_use/tool_result turns so future requests have full context.
 	conv.Messages = append(conv.Messages, toolMsgs...)
-	assistantMsg := entity.Message{
+	conv.Messages = append(conv.Messages, entity.Message{
 		Role:    entity.RoleAssistant,
 		Content: responseText,
-	}
-	conv.Messages = append(conv.Messages, assistantMsg)
+	})
 
 	if saveErr := uc.conversationRepo.Save(ctx, conv); saveErr != nil {
 		log.Printf("conversation save: %v", saveErr)
