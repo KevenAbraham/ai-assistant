@@ -5,38 +5,108 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
 )
 
-// appAliases maps common voice-transcription variants and display names to
-// the actual executable command. Extend as needed.
-var appAliases = map[string]string{
-	"chrome":          "google-chrome",
-	"crome":           "google-chrome",
-	"google chrome":   "google-chrome",
-	"google crome":    "google-chrome",
-	"chromium":        "chromium",
-	"firefox":         "firefox",
-	"spotify":         "spotify",
-	"nautilus":        "nautilus",
-	"files":           "nautilus",
-	"terminal":        "gnome-terminal",
-	"code":            "code",
-	"vscode":          "code",
-	"visual studio":   "code",
+// macOSAppNames maps voice-transcription variants to the exact app name
+// as it appears in /Applications on macOS.
+var macOSAppNames = map[string]string{
+	"chrome":        "Google Chrome",
+	"crome":         "Google Chrome",
+	"google chrome": "Google Chrome",
+	"chromium":      "Chromium",
+	"firefox":       "Firefox",
+	"safari":        "Safari",
+	"spotify":       "Spotify",
+	"terminal":      "Terminal",
+	"finder":        "Finder",
+	"code":          "Visual Studio Code",
+	"vscode":        "Visual Studio Code",
+	"visual studio": "Visual Studio Code",
+	"slack":         "Slack",
+	"discord":       "Discord",
+	"whatsapp":      "WhatsApp",
+	"zoom":          "zoom.us",
+	"notes":         "Notes",
+	"music":         "Music",
 }
 
-// resolveApp returns the canonical executable name for an app.
-func resolveApp(name string) string {
-	if alias, ok := appAliases[strings.ToLower(strings.TrimSpace(name))]; ok {
+// linuxAppAliases maps voice-transcription variants to the executable name on Linux.
+var linuxAppAliases = map[string]string{
+	"chrome":        "google-chrome",
+	"crome":         "google-chrome",
+	"google chrome": "google-chrome",
+}
+
+func normalise(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func resolveMacApp(name string) string {
+	if alias, ok := macOSAppNames[normalise(name)]; ok {
+		return alias
+	}
+	return strings.Title(normalise(name))
+}
+
+func resolveLinuxApp(name string) string {
+	if alias, ok := linuxAppAliases[normalise(name)]; ok {
 		return alias
 	}
 	return name
 }
 
-// ActionExecutor runs local device actions (open app, set alarm, etc.).
+// --- OS-specific URL openers ---
+
+func openURLOnDarwin(ctx context.Context, url string) error {
+	return exec.CommandContext(ctx, "open", url).Start()
+}
+
+func openURLOnLinux(ctx context.Context, url string) error {
+	for _, b := range []string{"xdg-open", "sensible-browser", "firefox", "google-chrome", "chromium"} {
+		if exec.CommandContext(ctx, b, url).Start() == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("no browser found (tried xdg-open, sensible-browser, firefox, google-chrome, chromium)")
+}
+
+func openURLForOS(ctx context.Context, url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return openURLOnDarwin(ctx, url)
+	default:
+		return openURLOnLinux(ctx, url)
+	}
+}
+
+// --- OS-specific app launchers ---
+
+func openAppOnDarwin(ctx context.Context, name string) error {
+	appName := resolveMacApp(name)
+	log.Printf("action: open_app %q → open -a %q", name, appName)
+	return exec.CommandContext(ctx, "open", "-a", appName).Start()
+}
+
+func openAppOnLinux(ctx context.Context, name string) error {
+	cmd := resolveLinuxApp(name)
+	log.Printf("action: open_app %q → exec %q", name, cmd)
+	return exec.CommandContext(ctx, cmd).Start()
+}
+
+func openAppForOS(ctx context.Context, name string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return openAppOnDarwin(ctx, name)
+	default:
+		return openAppOnLinux(ctx, name)
+	}
+}
+
+// ActionExecutor runs local device actions triggered by LLM tool calls.
 type ActionExecutor struct{}
 
 func NewActionExecutor() *ActionExecutor {
@@ -63,34 +133,19 @@ func (e *ActionExecutor) HandleTool(ctx context.Context, name string, input map[
 	}
 }
 
-// openApp launches an application by its command name.
-// Uses the app alias map to normalise common voice-transcription variants.
-func (e *ActionExecutor) openApp(ctx context.Context, app string) (string, error) {
-	cmd := resolveApp(app)
-	log.Printf("action: open_app %q → exec %q", app, cmd)
-	if err := exec.CommandContext(ctx, cmd).Start(); err != nil {
-		// Fallback: if the resolved name failed, try the original.
-		if cmd != app {
-			log.Printf("action: open_app fallback to original %q", app)
-			if err2 := exec.CommandContext(ctx, app).Start(); err2 == nil {
-				return "ok", nil
-			}
-		}
-		return "", fmt.Errorf("open_app %q: %w", cmd, err)
+func (e *ActionExecutor) openApp(ctx context.Context, name string) (string, error) {
+	if err := openAppForOS(ctx, name); err != nil {
+		return "", fmt.Errorf("open_app: %w", err)
 	}
 	return "ok", nil
 }
 
-// openURL opens a URL using the first available browser or xdg-open.
 func (e *ActionExecutor) openURL(ctx context.Context, url string) (string, error) {
-	browsers := []string{"xdg-open", "sensible-browser", "firefox", "google-chrome", "chromium"}
 	log.Printf("action: open_url %q", url)
-	for _, b := range browsers {
-		if err := exec.CommandContext(ctx, b, url).Start(); err == nil {
-			return "ok", nil
-		}
+	if err := openURLForOS(ctx, url); err != nil {
+		return "", fmt.Errorf("open_url: %w", err)
 	}
-	return "", fmt.Errorf("open_url: no browser found (tried xdg-open, sensible-browser, firefox, google-chrome, chromium)")
+	return "ok", nil
 }
 
 // Execute is kept for backward compatibility with the existing domain model.
@@ -108,7 +163,6 @@ func (e *ActionExecutor) Execute(ctx context.Context, cmd *entity.Command) error
 		_, err := e.openApp(ctx, app)
 		return err
 	case "set_alarm":
-		// Placeholder: integrate with system notification / cron in production.
 		return nil
 	default:
 		return fmt.Errorf("unsupported action type: %s", cmd.Action.Type)

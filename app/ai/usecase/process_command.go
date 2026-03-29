@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
 	"github.com/KevenAbraham/ai-assistant/app/ai/repository"
@@ -125,7 +126,7 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 	conv.Messages = append(conv.Messages, assistantMsg)
 
 	if saveErr := uc.conversationRepo.Save(ctx, conv); saveErr != nil {
-		_ = saveErr
+		log.Printf("conversation save: %v", saveErr)
 	}
 
 	return &ProcessCommandOutput{
