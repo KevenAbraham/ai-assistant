@@ -3,18 +3,152 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
+	"runtime"
+	"strings"
 
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
 )
 
-// ActionExecutor runs local device actions (open app, set alarm, etc.).
+// macOSAppNames maps voice-transcription variants to the exact app name
+// as it appears in /Applications on macOS.
+var macOSAppNames = map[string]string{
+	"chrome":        "Google Chrome",
+	"crome":         "Google Chrome",
+	"google chrome": "Google Chrome",
+	"chromium":      "Chromium",
+	"firefox":       "Firefox",
+	"safari":        "Safari",
+	"spotify":       "Spotify",
+	"terminal":      "Terminal",
+	"finder":        "Finder",
+	"code":          "Visual Studio Code",
+	"vscode":        "Visual Studio Code",
+	"visual studio": "Visual Studio Code",
+	"slack":         "Slack",
+	"discord":       "Discord",
+	"whatsapp":      "WhatsApp",
+	"zoom":          "zoom.us",
+	"notes":         "Notes",
+	"music":         "Music",
+}
+
+// linuxAppAliases maps voice-transcription variants to the executable name on Linux.
+var linuxAppAliases = map[string]string{
+	"chrome":        "google-chrome",
+	"crome":         "google-chrome",
+	"google chrome": "google-chrome",
+}
+
+func normalise(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func resolveMacApp(name string) string {
+	if alias, ok := macOSAppNames[normalise(name)]; ok {
+		return alias
+	}
+	return strings.Title(normalise(name))
+}
+
+func resolveLinuxApp(name string) string {
+	if alias, ok := linuxAppAliases[normalise(name)]; ok {
+		return alias
+	}
+	return name
+}
+
+// --- OS-specific URL openers ---
+
+func openURLOnDarwin(ctx context.Context, url string) error {
+	return exec.CommandContext(ctx, "open", url).Start()
+}
+
+func openURLOnLinux(ctx context.Context, url string) error {
+	for _, b := range []string{"xdg-open", "sensible-browser", "firefox", "google-chrome", "chromium"} {
+		if exec.CommandContext(ctx, b, url).Start() == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("no browser found (tried xdg-open, sensible-browser, firefox, google-chrome, chromium)")
+}
+
+func openURLForOS(ctx context.Context, url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return openURLOnDarwin(ctx, url)
+	default:
+		return openURLOnLinux(ctx, url)
+	}
+}
+
+// --- OS-specific app launchers ---
+
+func openAppOnDarwin(ctx context.Context, name string) error {
+	appName := resolveMacApp(name)
+	log.Printf("action: open_app %q → open -a %q", name, appName)
+	return exec.CommandContext(ctx, "open", "-a", appName).Start()
+}
+
+func openAppOnLinux(ctx context.Context, name string) error {
+	cmd := resolveLinuxApp(name)
+	log.Printf("action: open_app %q → exec %q", name, cmd)
+	return exec.CommandContext(ctx, cmd).Start()
+}
+
+func openAppForOS(ctx context.Context, name string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return openAppOnDarwin(ctx, name)
+	default:
+		return openAppOnLinux(ctx, name)
+	}
+}
+
+// ActionExecutor runs local device actions triggered by LLM tool calls.
 type ActionExecutor struct{}
 
 func NewActionExecutor() *ActionExecutor {
 	return &ActionExecutor{}
 }
 
+// HandleTool is the entry point called by the LLM tool handler.
+func (e *ActionExecutor) HandleTool(ctx context.Context, name string, input map[string]interface{}) (string, error) {
+	switch name {
+	case "open_app":
+		app, _ := input["app_name"].(string)
+		if app == "" {
+			return "", fmt.Errorf("open_app: missing app_name")
+		}
+		return e.openApp(ctx, app)
+	case "open_url":
+		url, _ := input["url"].(string)
+		if url == "" {
+			return "", fmt.Errorf("open_url: missing url")
+		}
+		return e.openURL(ctx, url)
+	default:
+		return "", fmt.Errorf("unknown tool: %s", name)
+	}
+}
+
+func (e *ActionExecutor) openApp(ctx context.Context, name string) (string, error) {
+	if err := openAppForOS(ctx, name); err != nil {
+		return "", fmt.Errorf("open_app: %w", err)
+	}
+	return "ok", nil
+}
+
+func (e *ActionExecutor) openURL(ctx context.Context, url string) (string, error) {
+	log.Printf("action: open_url %q", url)
+	if err := openURLForOS(ctx, url); err != nil {
+		return "", fmt.Errorf("open_url: %w", err)
+	}
+	return "ok", nil
+}
+
+// Execute is kept for backward compatibility with the existing domain model.
 func (e *ActionExecutor) Execute(ctx context.Context, cmd *entity.Command) error {
 	if cmd.Action == nil {
 		return nil
@@ -22,24 +156,15 @@ func (e *ActionExecutor) Execute(ctx context.Context, cmd *entity.Command) error
 
 	switch cmd.Action.Type {
 	case "open_app":
-		return e.openApp(ctx, cmd.Action.Payload)
+		app := cmd.Action.Payload["app"]
+		if app == "" {
+			return fmt.Errorf("open_app: missing 'app' in payload")
+		}
+		_, err := e.openApp(ctx, app)
+		return err
 	case "set_alarm":
-		return e.setAlarm(ctx, cmd.Action.Payload)
+		return nil
 	default:
 		return fmt.Errorf("unsupported action type: %s", cmd.Action.Type)
 	}
-}
-
-func (e *ActionExecutor) openApp(_ context.Context, payload map[string]string) error {
-	app, ok := payload["app"]
-	if !ok || app == "" {
-		return fmt.Errorf("open_app: missing 'app' in payload")
-	}
-	return exec.Command("xdg-open", app).Start()
-}
-
-func (e *ActionExecutor) setAlarm(_ context.Context, payload map[string]string) error {
-	// Placeholder: integrate with system notification / cron in production.
-	_ = payload
-	return nil
 }

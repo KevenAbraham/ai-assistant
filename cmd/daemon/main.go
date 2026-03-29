@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/KevenAbraham/ai-assistant/app/ai/handler/voice"
+	"github.com/KevenAbraham/ai-assistant/app/ai/service"
 	"github.com/KevenAbraham/ai-assistant/app/ai/usecase"
 	"github.com/KevenAbraham/ai-assistant/internal/config"
 	"github.com/KevenAbraham/ai-assistant/internal/database"
@@ -36,7 +37,14 @@ func main() {
 	var whisperClient voice.AudioTranscriber = httpclient.NewWhisperClient(cfg)
 	var ttsClient voice.TextSynthesizer = httpclient.NewTTSClient(cfg)
 
-	var processCmd usecase.CommandProcessor = usecase.NewProcessCommandUseCase(convRepo, memRepo, claudeClient)
+	systemPrompt, err := config.LoadSystemPrompt(cfg)
+	if err != nil {
+		log.Fatalf("system prompt: %v", err)
+	}
+	contextBuilder := service.NewContextBuilder(systemPrompt)
+	actionExecutor := service.NewActionExecutor()
+
+	var processCmd usecase.CommandProcessor = usecase.NewProcessCommandUseCase(convRepo, memRepo, claudeClient, contextBuilder, actionExecutor)
 
 	var listener voice.AudioCapture = voice.NewListener(voice.ListenerConfig{
 		MaxRecordSeconds:  cfg.RecordSeconds,
