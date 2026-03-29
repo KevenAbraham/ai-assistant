@@ -6,48 +6,61 @@ import (
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
 )
 
-// IntentRouter analyses raw text and maps it to a structured Command.
 type IntentRouter struct{}
 
 func NewIntentRouter() *IntentRouter {
 	return &IntentRouter{}
 }
 
-// Route parses raw user text and returns a Command with the detected intent.
-// This is a keyword-based implementation; replace with a proper NLU model in production.
 func (r *IntentRouter) Route(text string) *entity.Command {
 	lower := strings.ToLower(text)
-
 	cmd := &entity.Command{RawText: text}
 
 	switch {
-	case strings.Contains(lower, "abre ") || strings.Contains(lower, "abrir ") ||
-		strings.Contains(lower, "open ") || strings.Contains(lower, "launch "):
+	case isOpenAppIntent(lower):
 		cmd.Intent = entity.IntentOpenApp
 		cmd.Action = &entity.Action{
 			Type:    "open_app",
 			Payload: map[string]string{"query": text},
 		}
-
-	case strings.Contains(lower, "alarme") || strings.Contains(lower, "lembra") ||
-		strings.Contains(lower, "alarm") || strings.Contains(lower, "remind"):
+	case isAlarmIntent(lower):
 		cmd.Intent = entity.IntentSetAlarm
 		cmd.Action = &entity.Action{
 			Type:    "set_alarm",
 			Payload: map[string]string{"query": text},
 		}
-
-	case strings.Contains(lower, "lembra que") || strings.Contains(lower, "remember that") ||
-		strings.Contains(lower, "save that"):
+	case isSaveMemoryIntent(lower):
 		cmd.Intent = entity.IntentSaveMemory
-
-	case strings.Contains(lower, "o que você sabe") || strings.Contains(lower, "what do you know") ||
-		strings.Contains(lower, "recall"):
+	case isQueryMemoryIntent(lower):
 		cmd.Intent = entity.IntentQueryMemory
-
 	default:
 		cmd.Intent = entity.IntentChat
 	}
 
 	return cmd
+}
+
+func isOpenAppIntent(text string) bool {
+	return containsAny(text, "abre ", "abrir ", "open ", "launch ")
+}
+
+func isAlarmIntent(text string) bool {
+	return containsAny(text, "alarme", "lembra", "alarm", "remind")
+}
+
+func isSaveMemoryIntent(text string) bool {
+	return containsAny(text, "lembra que", "remember that", "save that")
+}
+
+func isQueryMemoryIntent(text string) bool {
+	return containsAny(text, "o que você sabe", "what do you know", "recall")
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }

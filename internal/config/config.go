@@ -34,11 +34,11 @@ type Config struct {
 // Load reads config from environment variables and validates required fields.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		AnthropicAPIKey:  os.Getenv("ANTHROPIC_API_KEY"),
-		ClaudeModel:      getEnvOr("CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
-		HTTPAddr:         getEnvOr("HTTP_ADDR", ":3000"),
-		SystemPromptPath: getEnvOr("SYSTEM_PROMPT_PATH", "resources/system_prompt.txt"),
+		DatabaseURL:       os.Getenv("DATABASE_URL"),
+		AnthropicAPIKey:   os.Getenv("ANTHROPIC_API_KEY"),
+		ClaudeModel:       getEnvOr("CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
+		HTTPAddr:          getEnvOr("HTTP_ADDR", ":3000"),
+		SystemPromptPath:  getEnvOr("SYSTEM_PROMPT_PATH", "resources/system_prompt.txt"),
 		WhisperURL:        getEnvOr("WHISPER_URL", "http://localhost:9000"),
 		RecordSeconds:     getEnvInt("RECORD_SECONDS", 30),
 		SilenceThreshold:  getEnvFloat("SILENCE_THRESHOLD", 500.0),

@@ -41,18 +41,18 @@ func encodeWAV(pcm []byte) []byte {
 
 	var buf bytes.Buffer
 	buf.WriteString("RIFF")
-	binary.Write(&buf, binary.LittleEndian, 36+dataSize) //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, 36+dataSize)
 	buf.WriteString("WAVE")
 	buf.WriteString("fmt ")
-	binary.Write(&buf, binary.LittleEndian, uint32(16))         //nolint:errcheck
-	binary.Write(&buf, binary.LittleEndian, uint16(1))          //nolint:errcheck // PCM
-	binary.Write(&buf, binary.LittleEndian, uint16(numChannels)) //nolint:errcheck
-	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate)) //nolint:errcheck
-	binary.Write(&buf, binary.LittleEndian, byteRate)           //nolint:errcheck
-	binary.Write(&buf, binary.LittleEndian, blockAlign)         //nolint:errcheck
-	binary.Write(&buf, binary.LittleEndian, uint16(bitsPerSample)) //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, uint32(16))
+	binary.Write(&buf, binary.LittleEndian, uint16(1)) // PCM
+	binary.Write(&buf, binary.LittleEndian, uint16(numChannels))
+	binary.Write(&buf, binary.LittleEndian, uint32(sampleRate))
+	binary.Write(&buf, binary.LittleEndian, byteRate)
+	binary.Write(&buf, binary.LittleEndian, blockAlign)
+	binary.Write(&buf, binary.LittleEndian, uint16(bitsPerSample))
 	buf.WriteString("data")
-	binary.Write(&buf, binary.LittleEndian, dataSize) //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, dataSize)
 	buf.Write(pcm)
 	return buf.Bytes()
 }
