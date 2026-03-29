@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"time"
 
@@ -22,6 +23,18 @@ func NewConversationRepository(db *database.DB) apprepository.ConversationReposi
 	return &conversationRepoPg{db: db}
 }
 
+// newUUID generates a random UUID v4 using crypto/rand (no external dependencies).
+func newUUID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand unavailable: %v", err))
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant RFC 4122
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
 func (r *conversationRepoPg) Save(ctx context.Context, conv *entity.Conversation) error {
 	conn := r.db.Conn()
 	tx, err := conn.Begin(ctx)
@@ -29,6 +42,10 @@ func (r *conversationRepoPg) Save(ctx context.Context, conv *entity.Conversation
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if conv.ID == "" {
+		conv.ID = newUUID()
+	}
 
 	now := time.Now().UTC()
 	_, err = tx.Exec(ctx, `
@@ -40,12 +57,16 @@ func (r *conversationRepoPg) Save(ctx context.Context, conv *entity.Conversation
 		return fmt.Errorf("upsert conversation: %w", err)
 	}
 
-	for _, msg := range conv.Messages {
+	for i := range conv.Messages {
+		if conv.Messages[i].ID == "" {
+			conv.Messages[i].ID = newUUID()
+			conv.Messages[i].CreatedAt = now
+		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO messages (id, conversation_id, role, content, created_at)
 			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (id) DO NOTHING
-		`, msg.ID, conv.ID, msg.Role, msg.Content, msg.CreatedAt)
+		`, conv.Messages[i].ID, conv.ID, conv.Messages[i].Role, conv.Messages[i].Content, conv.Messages[i].CreatedAt)
 		if err != nil {
 			return fmt.Errorf("insert message: %w", err)
 		}

@@ -3,13 +3,21 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/KevenAbraham/ai-assistant/app/ai/entity"
 	"github.com/KevenAbraham/ai-assistant/app/ai/repository"
+	"github.com/KevenAbraham/ai-assistant/app/ai/service"
 )
+
+// ToolHandler executes a named tool call and returns a result string.
+type ToolHandler func(ctx context.Context, name string, input map[string]interface{}) (string, error)
 
 type AIClient interface {
 	Complete(ctx context.Context, messages []entity.Message) (string, error)
+	// CompleteWithTools runs a multi-turn tool use loop and returns the final
+	// text response plus the intermediate tool messages for persistence.
+	CompleteWithTools(ctx context.Context, messages []entity.Message, tools []entity.Tool, handler ToolHandler) (string, []entity.Message, error)
 }
 
 type ProcessCommandInput struct {
@@ -22,21 +30,59 @@ type ProcessCommandOutput struct {
 	Intent   entity.Intent
 }
 
+// availableTools lists the tools exposed to the LLM.
+var availableTools = []entity.Tool{
+	{
+		Name:        "open_app",
+		Description: "Abre um aplicativo instalado no computador do usuário.",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"app_name": map[string]interface{}{
+					"type":        "string",
+					"description": "Nome ou comando do aplicativo (ex: firefox, spotify, nautilus)",
+				},
+			},
+			"required": []string{"app_name"},
+		},
+	},
+	{
+		Name:        "open_url",
+		Description: "Abre uma URL no navegador padrão do usuário.",
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"url": map[string]interface{}{
+					"type":        "string",
+					"description": "URL completa a abrir (ex: https://youtube.com)",
+				},
+			},
+			"required": []string{"url"},
+		},
+	},
+}
+
 type ProcessCommandUseCase struct {
 	conversationRepo repository.ConversationRepository
 	memoryRepo       repository.MemoryRepository
 	aiClient         AIClient
+	contextBuilder   *service.ContextBuilder
+	actionExecutor   *service.ActionExecutor
 }
 
 func NewProcessCommandUseCase(
 	convRepo repository.ConversationRepository,
 	memRepo repository.MemoryRepository,
 	aiClient AIClient,
+	cb *service.ContextBuilder,
+	executor *service.ActionExecutor,
 ) *ProcessCommandUseCase {
 	return &ProcessCommandUseCase{
 		conversationRepo: convRepo,
 		memoryRepo:       memRepo,
 		aiClient:         aiClient,
+		contextBuilder:   cb,
+		actionExecutor:   executor,
 	}
 }
 
@@ -59,11 +105,20 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 	}
 	conv.Messages = append(conv.Messages, userMsg)
 
-	responseText, err := uc.aiClient.Complete(ctx, conv.Messages)
+	memories, _ := uc.memoryRepo.FindAll(ctx)
+	messages := uc.contextBuilder.Build(conv.Messages, memories)
+
+	handler := func(ctx context.Context, name string, toolInput map[string]interface{}) (string, error) {
+		return uc.actionExecutor.HandleTool(ctx, name, toolInput)
+	}
+
+	responseText, toolMsgs, err := uc.aiClient.CompleteWithTools(ctx, messages, availableTools, handler)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", entity.ErrAIClientFailure, err)
 	}
 
+	// Persist tool_use/tool_result turns so future requests have full context.
+	conv.Messages = append(conv.Messages, toolMsgs...)
 	assistantMsg := entity.Message{
 		Role:    entity.RoleAssistant,
 		Content: responseText,
@@ -71,7 +126,7 @@ func (uc *ProcessCommandUseCase) Execute(ctx context.Context, input ProcessComma
 	conv.Messages = append(conv.Messages, assistantMsg)
 
 	if saveErr := uc.conversationRepo.Save(ctx, conv); saveErr != nil {
-		_ = saveErr
+		log.Printf("conversation save: %v", saveErr)
 	}
 
 	return &ProcessCommandOutput{

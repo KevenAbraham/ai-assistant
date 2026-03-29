@@ -21,3 +21,10 @@ type Command struct {
 	Intent  Intent
 	Action  *Action
 }
+
+// Tool describes a function the LLM can invoke on the user's behalf.
+type Tool struct {
+	Name        string
+	Description string
+	Parameters  map[string]interface{} // JSON Schema object for the tool input
+}
