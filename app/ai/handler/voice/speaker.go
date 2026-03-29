@@ -8,13 +8,10 @@ import (
 	"runtime"
 )
 
-// TextSynthesizer converts text to audio bytes.
-// The concrete implementation lives in internal/httpclient/tts_local_client.go.
 type TextSynthesizer interface {
 	Synthesize(ctx context.Context, text string) ([]byte, error)
 }
 
-// Speaker converts text to speech and plays it through the default audio output.
 type Speaker struct {
 	tts TextSynthesizer
 }

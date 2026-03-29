@@ -13,12 +13,10 @@ import (
 	"github.com/KevenAbraham/ai-assistant/internal/database"
 )
 
-// conversationRepoPg implements apprepository.ConversationRepository using PostgreSQL.
 type conversationRepoPg struct {
 	db *database.DB
 }
 
-// NewConversationRepository creates a new PostgreSQL-backed ConversationRepository.
 func NewConversationRepository(db *database.DB) apprepository.ConversationRepository {
 	return &conversationRepoPg{db: db}
 }

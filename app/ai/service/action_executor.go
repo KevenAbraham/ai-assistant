@@ -34,7 +34,6 @@ var macOSAppNames = map[string]string{
 	"music":         "Music",
 }
 
-// linuxAppAliases maps voice-transcription variants to the executable name on Linux.
 var linuxAppAliases = map[string]string{
 	"chrome":        "google-chrome",
 	"crome":         "google-chrome",
@@ -45,11 +44,21 @@ func normalise(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
+func titleCase(s string) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		if w != "" {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func resolveMacApp(name string) string {
 	if alias, ok := macOSAppNames[normalise(name)]; ok {
 		return alias
 	}
-	return strings.Title(normalise(name))
+	return titleCase(normalise(name))
 }
 
 func resolveLinuxApp(name string) string {
@@ -58,8 +67,6 @@ func resolveLinuxApp(name string) string {
 	}
 	return name
 }
-
-// --- OS-specific URL openers ---
 
 func openURLOnDarwin(ctx context.Context, url string) error {
 	return exec.CommandContext(ctx, "open", url).Start()
@@ -83,8 +90,6 @@ func openURLForOS(ctx context.Context, url string) error {
 	}
 }
 
-// --- OS-specific app launchers ---
-
 func openAppOnDarwin(ctx context.Context, name string) error {
 	appName := resolveMacApp(name)
 	log.Printf("action: open_app %q → open -a %q", name, appName)
@@ -106,14 +111,12 @@ func openAppForOS(ctx context.Context, name string) error {
 	}
 }
 
-// ActionExecutor runs local device actions triggered by LLM tool calls.
 type ActionExecutor struct{}
 
 func NewActionExecutor() *ActionExecutor {
 	return &ActionExecutor{}
 }
 
-// HandleTool is the entry point called by the LLM tool handler.
 func (e *ActionExecutor) HandleTool(ctx context.Context, name string, input map[string]interface{}) (string, error) {
 	switch name {
 	case "open_app":
@@ -148,7 +151,6 @@ func (e *ActionExecutor) openURL(ctx context.Context, url string) (string, error
 	return "ok", nil
 }
 
-// Execute is kept for backward compatibility with the existing domain model.
 func (e *ActionExecutor) Execute(ctx context.Context, cmd *entity.Command) error {
 	if cmd.Action == nil {
 		return nil
